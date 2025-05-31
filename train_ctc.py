@@ -5,7 +5,7 @@ from torchvision import transforms
 from datasets import load_dataset
 from CNN_BiLSTM_CTC import CNN_BiLSTM_CTC
 from CNN import CNN  # 確保這是有 extract_features() 的版本
-from utils import decode_label
+from lstm_utils import decode_label
 from decode import ctc_beam_search_with_lm
 import kenlm
 import json
