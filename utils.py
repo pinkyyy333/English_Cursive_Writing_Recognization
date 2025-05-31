@@ -72,5 +72,6 @@ def load_subset_ids(filepath: str) -> Set[str]:
     with open(filepath, 'r', encoding='utf-8') as f:
         return set(line.strip() for line in f if line.strip())
 
-def decode_label(label_seq, idx2char):
-    return ''.join([idx2char[idx] for idx in label_seq if idx in idx2char])
+def decode_label(indices, idx2char):
+    return "".join([idx2char[i] for i in indices if 0 < i < len(idx2char)])
+
