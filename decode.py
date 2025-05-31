@@ -4,6 +4,7 @@ import kenlm
 from collections import defaultdict
 from math import log
 import numpy as np
+import json
 
 class BeamEntry:
     def __init__(self):
@@ -67,8 +68,12 @@ if __name__ == "__main__":
     logits = torch.randn(T, C)
     log_probs = F.log_softmax(logits, dim=-1)
 
-    # 你自己的字元表，請對應模型的輸出索引
-    idx2char = ['-', 'a', 'b', 'c', 'd', 'e']  # 0 is blank, '-' is just for clarity
+    with open("char2idx.json", "r") as f:
+        char2idx = json.load(f)
+
+    idx2char = [''] * (max(char2idx.values()) + 1)
+    for char, idx in char2idx.items():
+        idx2char[idx] = char
 
     # 載入語言模型
     lm = kenlm.Model("corpus.arpa")
