@@ -1,58 +1,77 @@
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+import kenlm
+from collections import defaultdict
+from math import log
 import numpy as np
 
-# Parameter
-batch_size = 1
-timesteps = 3
-input_dim = 10
-hidden_size = 50
-vocab_size = 26  # a-z
-beam_width = 3
+class BeamEntry:
+    def __init__(self):
+        self.pr_blank = 0.0
+        self.pr_non_blank = 0.0
+        self.lm_score = 0.0
+        self.total_score = float('-inf')
+        self.sequence = []
 
-# Simulate the input data
-input_data = torch.randn(batch_size, timesteps, input_dim)
+    def score(self, alpha=0.5, beta=1.0):
+        return log(self.pr_blank + self.pr_non_blank + 1e-10) + alpha * self.lm_score + beta * len(self.sequence)
 
-# Model definition
-class SimpleLSTM(nn.Module):
-    def __init__(self, input_dim, hidden_size, vocab_size):
-        super(SimpleLSTM, self).__init__()
-        self.lstm = nn.LSTM(input_dim, hidden_size, num_layers=2, bidirectional=True, batch_first=True)
-        self.fc = nn.Linear(hidden_size * 2, vocab_size)  # Bidirectional
+def ctc_beam_search_with_lm(log_probs, lm, beam_width=10, alpha=0.5, beta=1.0, blank=0, idx2char=None):
+    T, C = log_probs.shape
+    beams = defaultdict(BeamEntry)
+    beams[()].pr_blank = 1.0
 
-    def forward(self, x):
-        out, _ = self.lstm(x)
-        out = self.fc(out)
-        probs = F.softmax(out, dim=2)
-        return probs
+    for t in range(T):
+        next_beams = defaultdict(BeamEntry)
+        for prefix, entry in beams.items():
+            for c in range(C):
+                p = torch.exp(log_probs[t, c]).item()
+                new_prefix = prefix
 
-model = SimpleLSTM(input_dim, hidden_size, vocab_size)
-output_probs = model(input_data)[0].detach().numpy()  # shape: (timesteps, vocab_size)
+                if c == blank:
+                    be = next_beams[prefix]
+                    be.sequence = prefix
+                    be.pr_blank += entry.pr_blank * p
+                    be.pr_blank += entry.pr_non_blank * p
+                    be.pr_non_blank = be.pr_non_blank
+                    be.lm_score = entry.lm_score
+                else:
+                    new_prefix = prefix + (c,)
+                    last_char = prefix[-1] if prefix else None
 
-# Decode function
-def beam_search_decoder(probs, beam_width=3):
-    # prob.shape = torch.tensor([timestamp, vocabulary_size])
-    sequences = [([], 0.0)]  # (sequence, score)
-    for t in range(probs.shape[0]):
-        all_candidates = []
-        for seq, score in sequences:
-            for c in range(probs.shape[1]):
-                log_probs = np.log(probs[t, c] + 1e-9)
-                candidate = (seq + [c], score + log_probs)
-                all_candidates.append(candidate)
-        # Sort top beam_width
-        ordered = sorted(all_candidates, key=lambda tup: tup[1], reverse=True)
-        # Get the width we need
-        sequences = ordered[:beam_width]
-    return sequences
+                    be = next_beams[new_prefix]
+                    be.sequence = new_prefix
 
-# Decode
-results = beam_search_decoder(output_probs, beam_width=beam_width)
+                    if c != last_char:
+                        be.pr_non_blank += entry.pr_blank * p
+                    be.pr_non_blank += entry.pr_non_blank * p if c != last_char else 0.0
 
-# Trabsform index into character
-idx2char = [chr(i + ord('a')) for i in range(vocab_size)]
+                    # LM 得分
+                    text = ''.join([idx2char[i] for i in new_prefix])
+                    be.lm_score = lm.score(text, bos=False, eos=False)
 
-print("Beam Search Top 3:")
-for seq, score in results:
-    print("Sequence:", ''.join([idx2char[i] for i in seq]), "Score:", score)
+        # Beam pruning
+        beam_list = sorted(next_beams.items(), key=lambda x: x[1].score(alpha, beta), reverse=True)
+        beams = defaultdict(BeamEntry)
+        for k, v in beam_list[:beam_width]:
+            beams[k] = v
+
+    best = max(beams.items(), key=lambda x: x[1].score(alpha, beta))
+    final_seq = ''.join([idx2char[i] for i in best[0]])
+    return final_seq
+
+# === 測試 ===
+if __name__ == "__main__":
+    torch.manual_seed(0)
+    T, C = 10, 6  # 10 time steps, 6 classes (0 is blank)
+    logits = torch.randn(T, C)
+    log_probs = F.log_softmax(logits, dim=-1)
+
+    # 你自己的字元表，請對應模型的輸出索引
+    idx2char = ['-', 'a', 'b', 'c', 'd', 'e']  # 0 is blank, '-' is just for clarity
+
+    # 載入語言模型
+    lm = kenlm.Model("corpus.arpa")
+
+    result = ctc_beam_search_with_lm(log_probs, lm, beam_width=5, alpha=1.0, beta=0.5, blank=0, idx2char=idx2char)
+    print("Decoded with LM:", result)
