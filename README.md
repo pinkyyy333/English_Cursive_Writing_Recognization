@@ -10,3 +10,6 @@
 1. [Handwriting Recognition by Landlord](https://www.kaggle.com/datasets/landlord/handwriting-recognition/data)
 2. [Kannada Handwritten Characters](https://www.kaggle.com/datasets/dhruvildave/kannada-characters)
 3. [English Handwritten Characters](https://www.kaggle.com/datasets/dhruvildave/english-handwritten-characters-dataset)
+
+## Codes Used
+1. [HandWritingRecognition by Arya Sarkar](https://www.kaggle.com/code/sarkarya/handwritingrecognition)
