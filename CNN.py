@@ -8,67 +8,88 @@ import pandas as pd
 
 class CNN(nn.Module):
     def __init__(self, num_classes = 62):
-        # (TODO) Design your CNN, it can only be less than 3 convolution layers
+        # (TODO) Design your CNN
         super(CNN, self).__init__()
-        
         self.layer1 = nn.Sequential(
-            nn.Conv2d(in_channels = 3, out_channels = 32, kernel_size = 5),
+            # Change: 3 -> 1
+            nn.Conv2d(1, 32, kernel_size=5, padding=1),
             nn.BatchNorm2d(32),
             nn.ReLU(),
-            nn.MaxPool2d(kernel_size = 2, stride = 2)
+            nn.MaxPool2d(kernel_size=2, stride=2)  
         )
-        
         self.layer2 = nn.Sequential(
-            nn.Conv2d(in_channels = 32, out_channels = 64, kernel_size = 5),
-            nn.BatchNorm2d(64),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size = 2, stride = 2)
-        )
-        
-        self.layer3 = nn.Sequential(
-            nn.Conv2d(in_channels = 64, out_channels = 64, kernel_size = 5),
-            nn.BatchNorm2d(64),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size = 2, stride = 2)
-        )
-        
-        self.layer4 = nn.Sequential(
-            nn.Conv2d(in_channels = 64, out_channels = 32, kernel_size = 5),
+            nn.Conv2d(32, 32, kernel_size=5, padding=1),
             nn.BatchNorm2d(32),
             nn.ReLU(),
-            nn.MaxPool2d(kernel_size = 2, stride = 2)
+            nn.MaxPool2d(kernel_size=2, stride=2) 
+        )
+        self.layer3 = nn.Sequential(
+            nn.Conv2d(32, 64, kernel_size=5, padding=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2) 
+        )
+        self.layer4 = nn.Sequential(
+            nn.Conv2d(64, 64, kernel_size=5, padding=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2)  
         )
         
-        dummy_input = torch.zeros(1, 3, 224, 224)
+        # self.layer5 = nn.Conv2d(in_channels = 64, out_channels = 32, kernel_size = 3)
+        # self.batchnorm5 = nn.BatchNorm2d(32)
+        # self.relu5 = nn.ReLU()
+        # self.max_pool5 = nn.MaxPool2d(kernel_size = 2, stride = 2)
+        
+        # self.layer6 = nn.Conv2d(in_channels = 32, out_channels = 32, kernel_size = 3)
+        # self.batchnorm6 = nn.BatchNorm2d(32)
+        # self.relu6 = nn.ReLU()
+        # self.max_pool6 = nn.MaxPool2d(kernel_size = 2, stride = 2)
+        
+        # compute the flattened size dynamically
+        dummy_input = torch.zeros(1, 1, 224, 224)  # adjust to input image size
         x = self.layer1(dummy_input)
         x = self.layer2(x)
         x = self.layer3(x)
         x = self.layer4(x)
-        self.flattened_size = x.view(1, -1).size(1)
+        flattened_size = x.view(1, -1).shape[1]
 
-        flattened_size = x.view(1, -1).shape[1]  # Get the flattened size
-        self.classifier = nn.Sequential(
-            nn.Flatten(),
-            nn.Linear(flattened_size, 128),
-            nn.Dropout(0.3),
-            nn.ReLU(),
-            nn.Linear(128, num_classes),
-            # nn.ReLU(),
-            # nn.Linear(64, num_classes),
-            nn.LogSoftmax(dim = 1),
-            # nn.Dropout(0.3),
-        )
+        self.fc1 = nn.Linear(flattened_size, 128)
+        self.dropout = nn.Dropout(0.3)
+        self.relu_last = nn.ReLU()
+        self.fc2 = nn.Linear(128, num_classes)
+        #self.fc3 = nn.Linear(64, num_classes)
+        self.logSoftmax = nn.LogSoftmax(dim = 1)
 
     def forward(self, x):
-        x = self.layer1(x)
+        # (TODO) Forward the model
+        # pass through first set
+        x = self.layer1(x)  # 包含 conv + batchnorm + relu + maxpool
         x = self.layer2(x)
-        
-        # x = self.dropout1(x)
-        
         x = self.layer3(x)
         x = self.layer4(x)
         
-        x = self.classifier(x)
+        # pass through fifth set
+        # x = self.layer5(x)
+        # x = self.batchnorm5(x)
+        # x = self.relu5(x)
+        # x = self.max_pool5(x)
+        
+        # pass through sixth set
+        # x = self.layer6(x)
+        # x = self.batchnorm6(x)
+        # x = self.relu6(x)
+        # x = self.max_pool6(x)
+        
+        # flatten output and pass through fc -> relu layers
+        x = torch.flatten(x, 1)
+        x = self.dropout(x)
+        x = self.fc1(x)
+        # x = self.relu_last(x)
+        x = self.dropout(x)
+        # pass to softmax classfier
+        x = self.fc2(x)
+        x = self.logSoftmax(x)
         
         return x
     
@@ -78,6 +99,7 @@ class CNN(nn.Module):
         x = self.layer3(x)  # [B, 128, H/8, W/8]
         x = self.layer4(x)  # [B, 128, H/16, W/16]
         return x
+    
 
 def train(model: CNN, train_loader: DataLoader, criterion, optimizer, device)->float:
     # (TODO) Train the model and return the average loss of the data, we suggest use tqdm to know the progress
@@ -95,7 +117,9 @@ def train(model: CNN, train_loader: DataLoader, criterion, optimizer, device)->f
         inputs, labels = inputs.to(device), labels.to(device)
         
         # forward pass
+        criterion = nn.CrossEntropyLoss()
         outputs = model(inputs)
+        # print("CNN output shape: ", outputs.size())
         loss = criterion(outputs, labels)
         
         # zero the gradients, backward and optimize
@@ -184,3 +208,4 @@ def test(model: CNN, test_loader: DataLoader, criterion, device):
             
     print(f"Predictions saved to 'CNN.csv'")
     return
+
