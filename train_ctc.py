@@ -12,7 +12,6 @@ import json
 from tqdm import tqdm
 from PIL import ExifTags
 import logging
-# import os
 
 # Dataset 定義
 class IAMLineDataset(Dataset):
@@ -20,7 +19,8 @@ class IAMLineDataset(Dataset):
         self.dataset = hf_dataset
         self.char2idx = char2idx
         self.transform = transforms.Compose([
-            transforms.Grayscale(num_output_channels=3),
+            # Change into grayscale
+            transforms.Grayscale(),
             transforms.Resize((128, 512)),
             transforms.ToTensor()
         ])
@@ -44,7 +44,7 @@ def collate_fn(batch):
     return image_tensors, targets, target_lengths
 
 # 評估（僅使用 Beam Search + LM）
-def evaluate(model, dataloader, criterion, device, idx2char, lm):
+def evaluate(model, dataloader, criterion, device, idx2char, lm=None, use_beam=True):
     model.eval()
     total_loss = 0
     correct = 0
@@ -62,23 +62,30 @@ def evaluate(model, dataloader, criterion, device, idx2char, lm):
             label_ptr = 0
             for i in range(outputs.size(0)):
                 log_probs = outputs[i].cpu()
-                pred_str = ctc_beam_search_with_lm(
-                    log_probs,
-                    lm,
-                    beam_width=10,
-                    alpha=1.0,
-                    beta=0.5,
-                    blank=0,
-                    idx2char=idx2char
-                )
+                probs = log_probs.exp()
+                topv, topi = probs.max(dim=-1)  # [T]
+                print(f"[DEBUG] Top prob avg: {topv.mean().item():.4f}, Top idx sample: {topi[:20].tolist()}")
+                if use_beam and lm is not None:
+                    pred_str = ctc_beam_search_with_lm(
+                        log_probs,
+                        lm,
+                        beam_width=10,
+                        alpha=0.5,
+                        beta=0.1,
+                        blank=0,
+                        idx2char=idx2char
+                    )
+                else:
+                    pred_indices = torch.argmax(log_probs, dim=-1).numpy().tolist()
+                    pred_str = decode_label(pred_indices, idx2char)
 
                 gt = targets[label_ptr:label_ptr + target_lengths[i].item()].tolist()
                 gt_str = decode_label(gt, idx2char)
-                '''
+                
                 print(f"[DEBUG] GT index list: {gt}")
                 print(f"[DEBUG] GT str       : '{gt_str}'")
                 print(f"[DEBUG] PRED str     : '{pred_str}'")
-                '''
+                
                 if pred_str == gt_str:
                     correct += 1
                 total += 1
@@ -95,7 +102,7 @@ def evaluate(model, dataloader, criterion, device, idx2char, lm):
 
 # 主函式
 def main():
-    logging.basicConfig(level=logging.INFO, filename="logger.log", filemode="w", 
+    logging.basicConfig(level=logging.INFO, filename="lstm_logger.log", filemode="w", 
                     format='%(asctime)s [%(levelname)s] %(message)s',
                     datefmt='%Y/%m/%d %H:%M:%S')
 
@@ -124,11 +131,18 @@ def main():
     train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True, collate_fn=collate_fn)
     test_loader = DataLoader(test_dataset, batch_size=4, shuffle=False, collate_fn=collate_fn)
 
+
     cnn = CNN()
+    pretrained_dict = torch.load("best_cnn_model.pth")
+    cnn_dict = cnn.state_dict()
+    pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in cnn_dict and 'fc' not in k and 'logSoftmax' not in k}
+    cnn_dict.update(pretrained_dict)
+    cnn.load_state_dict(cnn_dict)
     model = CNN_BiLSTM_CTC(cnn_backbone=cnn, num_classes=num_classes).to(device)
     criterion = nn.CTCLoss(blank=0, zero_infinity=True)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
 
+    best_val_loss = float('inf')
     for epoch in range(10):
         model.train()
         total_loss = 0
@@ -137,8 +151,9 @@ def main():
             imgs = imgs.to(device)
             targets = targets.to(device)
             outputs = model(imgs)
-            output_lengths = torch.full(size=(outputs.size(0),), fill_value=outputs.size(1), dtype=torch.long).to(device)
 
+            output_lengths = torch.full(size=(outputs.size(0),), fill_value=outputs.size(1), dtype=torch.long).to(device)
+            
             loss = criterion(outputs.permute(1, 0, 2), targets, output_lengths, target_lengths)
             optimizer.zero_grad()
             loss.backward()
@@ -151,9 +166,16 @@ def main():
         logging.info(f"Epoch {epoch+1}, Train Loss: {avg_loss:.4f}")
         print(f"Epoch {epoch+1}, Train Loss: {avg_loss:.4f}")
 
-        test_loss, test_acc = evaluate(model, test_loader, criterion, device, idx2char, lm)
+        test_loss, test_acc = evaluate(model, test_loader, criterion, device, idx2char, lm=None, use_beam=False)
         logging.info(f"Test Loss: {test_loss:.4f}, Test Accuracy (Exact Match): {test_acc:.2f}%")
         print(f"Test Loss: {test_loss:.4f}, Test Accuracy (Exact Match): {test_acc:.2f}%")
+
+        # 儲存最佳模型
+        if test_loss < best_val_loss:
+            best_val_loss = test_loss
+            torch.save(model.state_dict(), "best_model_ctc.pth")
+            logging.info(f"Saved best model at epoch {epoch+1} with loss {best_val_loss:.4f}")
+            print(f"Saved best model at epoch {epoch+1} with loss {best_val_loss:.4f}")
 
 if __name__ == '__main__':
     main()
