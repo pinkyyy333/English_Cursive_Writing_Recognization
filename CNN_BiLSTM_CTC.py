@@ -12,9 +12,11 @@ class CNN_BiLSTM_CTC(nn.Module):
         self.lstm_layers = lstm_layers
         self.num_classes = num_classes
 
-        dummy_input = torch.zeros(1, 3, 48, 160)  # 根據你的圖片大小設定
+        dummy_input = torch.zeros(1, 1, 128, 512)  # 根據你的圖片大小設定
         with torch.no_grad():
             features = self.cnn.extract_features(dummy_input)  # [1, C, H, W]
+            print(features.shape)  # b, c, h, w
+            print("Output time steps (width):", features.shape[-1])
             print("[DEBUG] features shape from dummy input:", features.shape)
             b, c, h, w = features.shape
             self.seq_len = w
