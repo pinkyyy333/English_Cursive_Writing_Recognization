@@ -48,8 +48,10 @@ def ctc_beam_search_with_lm(log_probs, lm, beam_width=10, alpha=0.5, beta=1.0, b
                     be.pr_non_blank += entry.pr_non_blank * p if c != last_char else 0.0
 
                     # LM 得分
-                    text = ''.join([idx2char[i] for i in new_prefix])
-                    be.lm_score = lm.score(text, bos=False, eos=False)
+                    text_prev = ''.join([idx2char[i] for i in prefix])
+                    text_new = ''.join([idx2char[i] for i in new_prefix])
+                    delta_score = lm.score(text_new, bos=False, eos=False) - lm.score(text_prev, bos=False, eos=False)
+                    be.lm_score = entry.lm_score + delta_score
 
         # Beam pruning
         beam_list = sorted(next_beams.items(), key=lambda x: x[1].score(alpha, beta), reverse=True)
@@ -75,7 +77,6 @@ if __name__ == "__main__":
     for char, idx in char2idx.items():
         idx2char[idx] = char
 
-    # 載入語言模型
     lm = kenlm.Model("corpus.arpa")
 
     result = ctc_beam_search_with_lm(log_probs, lm, beam_width=5, alpha=1.0, beta=0.5, blank=0, idx2char=idx2char)
