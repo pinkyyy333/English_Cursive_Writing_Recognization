@@ -11,7 +11,7 @@ from typing import Optional, Set
 class TrainDataset(Dataset):
     def __init__(self, images, labels):
         self.transform = transforms.Compose([
-            transforms.Grayscale(num_output_channels=3),
+            transforms.Grayscale(),
             transforms.Resize((224, 224)),
             transforms.ToTensor()
         ])
@@ -33,7 +33,7 @@ class TrainDataset(Dataset):
 class TestDataset(Dataset):
     def __init__(self, image):
         self.transform = transforms.Compose([
-            transforms.Grayscale(num_output_channels=3),
+            transforms.Grayscale(),
             transforms.Resize((224, 224)),
             transforms.ToTensor()
         ])
